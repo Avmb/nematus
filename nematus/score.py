@@ -32,17 +32,18 @@ def load_scorer(model, option, alignweights=None):
     trng, use_noise, \
         x, x_mask, y, y_mask, \
         opt_ret, \
-        cost = \
+        cost, lcost, rcost = \
         build_model(tparams, option)
     inps = [x, x_mask, y, y_mask]
     use_noise.set_value(0.)
 
     if alignweights:
         logging.debug("Save weight mode ON, alignment matrix will be saved.")
-        outputs = [cost, opt_ret['dec_alphas']]
+        outputs = [cost, lcost, rcost, opt_ret['dec_alphas']]
         f_log_probs = theano.function(inps, outputs)
     else:
-        f_log_probs = theano.function(inps, cost)
+        outputs = [cost, lcost, rcost]
+        f_log_probs = theano.function(inps, outputs)
 
     return f_log_probs
 

@@ -20,21 +20,25 @@ from score import load_scorer
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import theano
 
-def rescore_model(source_file, nbest_file, saveto, models, options, b, normalization_alpha, verbose, alignweights):
+def rescore_model(source_file, nbest_file, saveto, models, options, b, normalization_alpha, verbose, alignweights, reconstruction_cost_file):
 
     trng = RandomStreams(1234)
 
     def _score(pairs, alignweights=False):
         # sample given an input sequence and obtain scores
-        scores = []
+        costs = []
+        tcosts = []
+        rcosts = []
         alignments = []
         for i, model in enumerate(models):
-            f_log_probs = load_scorer.load(model, options[i], alignweights=alignweights)
-            score, alignment = pred_probs(f_log_probs, prepare_data, options[i], pairs, normalization_alpha=normalization_alpha, alignweights = alignweights)
-            scores.append(score)
+            f_log_probs = load_scorer(model, options[i], alignweights=alignweights)
+            cost, tcost, rcost, alignment = pred_probs(f_log_probs, prepare_data, options[i], pairs, normalization_alpha=normalization_alpha, alignweights = alignweights)
+            costs.append(cost)
+            tcosts.append(tcost)
+            rcosts.append(rcost)
             alignments.append(alignment)
 
-        return scores, alignments
+        return costs, tcosts, rcosts, alignments
 
     lines = source_file.readlines()
     nbest_lines = nbest_file.readlines()
@@ -60,11 +64,17 @@ def rescore_model(source_file, nbest_file, saveto, models, options, b, normaliza
                          sort_by_length=False) #TODO: sorting by length could be more efficient, but we'd have to synchronize scores with n-best list after
 
 
-        scores, alignments = _score(pairs, alignweights)
+        scores, tcosts, rcosts, alignments = _score(pairs, alignweights)
 
         for i, line in enumerate(nbest_lines):
-            score_str = ' '.join(map(str,[s[i] for s in scores]))
+            score_str = ' '.join(map(str,[s[i] for s in tcosts]))
             saveto.write('{0} {1}\n'.format(line.strip(), score_str))
+
+        if reconstruction_cost_file:
+            for i, line in enumerate(nbest_lines):
+                rcost_str = ' '.join(map(str,[r[i] for r in rcosts]))
+                reconstruction_cost_file.write('{0}\n'.format(rcost_str))
+
 
         ### optional save weights mode.
         if alignweights:
@@ -75,7 +85,7 @@ def rescore_model(source_file, nbest_file, saveto, models, options, b, normaliza
         align_OUT.close()
 
 def main(models, source_file, nbest_file, saveto, b=80,
-         normalization_alpha=0.0, verbose=False, alignweights=False):
+         normalization_alpha=0.0, verbose=False, alignweights=False, reconstruction_cost_file=None):
 
     # load model model_options
     options = []
@@ -84,7 +94,7 @@ def main(models, source_file, nbest_file, saveto, b=80,
 
         fill_options(options[-1])
 
-    rescore_model(source_file, nbest_file, saveto, models, options, b, normalization_alpha, verbose, alignweights)
+    rescore_model(source_file, nbest_file, saveto, models, options, b, normalization_alpha, verbose, alignweights, reconstruction_cost_file)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -106,6 +116,8 @@ if __name__ == "__main__":
                         help="Output file (default: standard output)")
     parser.add_argument('--walign', '-w',required = False,action="store_true",
                         help="Whether to store the alignment weights or not. If specified, weights will be saved in <input>.alignment")
+    parser.add_argument('--reconstruction_cost_file',  type=argparse.FileType('w'), metavar='PATH',
+                        help="write reconstruction costs to PATH")
 
     args = parser.parse_args()
 
@@ -114,4 +126,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
     main(args.models, args.source, args.input,
-         args.output, b=args.b, normalization_alpha=args.n, verbose=args.v, alignweights=args.walign)
+         args.output, b=args.b, normalization_alpha=args.n, verbose=args.v, alignweights=args.walign, reconstruction_cost_file=args.reconstruction_cost_file)
